@@ -330,7 +330,7 @@ def load_asr(model_path: str, device: str, dtype: torch.dtype, attn: str):
     )
     model = VibeVoiceASRForConditionalGeneration.from_pretrained(
         model_path,
-        dtype=dtype,
+        torch_dtype=dtype,
         device_map=device if device == "auto" else None,
         attn_implementation=attn,
         trust_remote_code=True,
