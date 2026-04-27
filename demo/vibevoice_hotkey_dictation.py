@@ -481,7 +481,24 @@ def transcribe(
 class DictationOrchestrator:
     """
     Ties together the hotkey, recorder, toast, ASR engine, and output actions.
+
+    State machine
+    -------------
+    idle        – waiting for the hotkey
+    recording   – microphone is open, audio is being captured
+    transcribing – audio collected, ASR running in background thread
+
+    Hotkey behaviour
+    ----------------
+    idle        → start recording
+    recording   → stop recording and transcribe
+    transcribing → ignored (a new recording starts only after the current
+                   transcription has finished)
     """
+
+    _STATE_IDLE        = "idle"
+    _STATE_RECORDING   = "recording"
+    _STATE_TRANSCRIBING = "transcribing"
 
     def __init__(
         self,
@@ -511,6 +528,7 @@ class DictationOrchestrator:
         )
         self._toast: Optional[ToastWindow] = None
         self._lock = threading.Lock()
+        self._state = self._STATE_IDLE
 
     # ------------------------------------------------------------------
     def run(self):
@@ -522,24 +540,30 @@ class DictationOrchestrator:
     # ------------------------------------------------------------------
     def _on_hotkey(self):
         with self._lock:
-            if self._recorder.is_recording():
-                self._stop_and_transcribe()
-            else:
+            if self._state == self._STATE_IDLE:
                 self._start_recording()
+            elif self._state == self._STATE_RECORDING:
+                # User manually stops recording
+                self._stop_and_transcribe()
+            # STATE_TRANSCRIBING → ignore; wait for transcription to finish
 
     def _on_silence_stop(self):
+        # NOTE: Recorder._callback sets _recording=False *before* launching
+        # this thread, so we must check our own _state, not recorder.is_recording().
         with self._lock:
-            if self._recorder.is_recording():
+            if self._state == self._STATE_RECORDING:
                 self._stop_and_transcribe()
 
     # ------------------------------------------------------------------
     def _start_recording(self):
+        self._state = self._STATE_RECORDING
         self._toast = ToastWindow(self._recorder)
         self._toast.show()
         self._recorder.start()
         print("[VibeVoice] Recording started.")
 
     def _stop_and_transcribe(self):
+        self._state = self._STATE_TRANSCRIBING
         audio = self._recorder.stop()
         print(f"[VibeVoice] Recording stopped — {len(audio) / SAMPLE_RATE:.1f}s captured.")
 
@@ -558,6 +582,8 @@ class DictationOrchestrator:
             print("[VibeVoice] Audio too short — skipping transcription.")
             if self._toast:
                 self._toast.close()
+            with self._lock:
+                self._state = self._STATE_IDLE
             return
 
         try:
@@ -574,12 +600,16 @@ class DictationOrchestrator:
             print(f"[VibeVoice] Transcription error: {exc}")
             if self._toast:
                 self._toast.close()
+            with self._lock:
+                self._state = self._STATE_IDLE
             return
 
         if not text:
             print("[VibeVoice] Empty transcription.")
             if self._toast:
                 self._toast.close()
+            with self._lock:
+                self._state = self._STATE_IDLE
             return
 
         print(f"[VibeVoice] Transcribed: {text}")
@@ -602,6 +632,9 @@ class DictationOrchestrator:
 
         if self._toast:
             self._toast.set_done()
+
+        with self._lock:
+            self._state = self._STATE_IDLE
 
 
 # ---------------------------------------------------------------------------
