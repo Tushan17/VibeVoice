@@ -1,5 +1,7 @@
 # VibeVoice Hotkey Dictation (Windows)
 
+> For a unified guide covering all demos, see [how-to-run.md](how-to-run.md).
+
 A lightweight overlay that lets you dictate text into any application on Windows by pressing a global hotkey.
 
 ## How it works

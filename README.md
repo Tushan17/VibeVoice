@@ -55,6 +55,8 @@ A core innovation of VibeVoice is its use of continuous speech tokenizers (Acous
 
 For more information, demos, and examples, please visit our [Project Page](https://microsoft.github.io/VibeVoice).
 
+> **Want to get started quickly?** See [docs/how-to-run.md](docs/how-to-run.md) for step-by-step instructions on running every demo in this repository.
+
 
 <div align="center">
 
