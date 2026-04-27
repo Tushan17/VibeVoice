@@ -41,7 +41,13 @@ dependencies = [
 
 [project.optional-dependencies]
 streamingtts = [
-  "transformers==4.51.3", 
+  "transformers==4.51.3",
+]
+hotkey-dictation = [
+  "sounddevice>=0.4.6",
+  "keyboard>=0.13.5",
+  "pyperclip>=1.8.0",
+  "pyautogui>=0.9.54",
 ]
 
 [project.entry-points."vllm.general_plugins"]
