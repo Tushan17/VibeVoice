@@ -431,11 +431,12 @@ def transcribe(
     if sample_rate != target_sr:
         audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=target_sr)
 
-    # The processor accepts (array, sampling_rate) tuples or bare numpy arrays
-    # (when sampling_rate=None the processor uses target_sample_rate)
+    # Pass audio as a list of arrays with the explicit sampling_rate.
+    # Wrapping in a tuple (audio, sr) causes a numpy inhomogeneous-shape error
+    # because the processor tries np.array((array, int)) which fails.
     inputs = processor(
-        audio=[(audio, target_sr)],
-        sampling_rate=None,
+        audio=[audio],
+        sampling_rate=target_sr,
         return_tensors="pt",
         padding=True,
         add_generation_prompt=True,
