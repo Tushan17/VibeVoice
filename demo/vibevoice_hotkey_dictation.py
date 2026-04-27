@@ -25,6 +25,8 @@ Optional flags:
 """
 
 import argparse
+import collections
+import math
 import queue
 import sys
 import threading
@@ -77,10 +79,28 @@ except ImportError:
 # ---------------------------------------------------------------------------
 SAMPLE_RATE = 16_000          # Hz — captured by sounddevice
 CHUNK_FRAMES = 1_600          # ~100 ms per callback chunk
-WAVEFORM_BARS = 30            # number of bars in the toast visualiser
-TOAST_WIDTH = 340
-TOAST_HEIGHT = 90
+WAVEFORM_BARS = 52            # number of scrolling bars in the waveform
+BAR_W = 4                     # bar width in pixels
+BAR_GAP = 2                   # gap between bars in pixels
+CANVAS_H = 64                 # waveform canvas height in pixels
+TOAST_WIDTH = 360
+TOAST_HEIGHT = 116
+TICK_MS = 33                  # ~30 fps for smooth animation
 DISMISS_AFTER_MS = 2_500      # ms before "Done" toast auto-closes
+
+# Waveform gradient endpoints (blue → lavender)
+_GRAD_LEFT  = "#89b4fa"
+_GRAD_RIGHT = "#b4befe"
+
+
+def _lerp_hex(c1: str, c2: str, t: float) -> str:
+    """Linearly interpolate between two hex colours."""
+    r1, g1, b1 = int(c1[1:3], 16), int(c1[3:5], 16), int(c1[5:7], 16)
+    r2, g2, b2 = int(c2[1:3], 16), int(c2[3:5], 16), int(c2[5:7], 16)
+    r = int(r1 + (r2 - r1) * t)
+    g = int(g1 + (g2 - g1) * t)
+    b = int(b1 + (b2 - b1) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 # ---------------------------------------------------------------------------
@@ -174,19 +194,35 @@ class ToastWindow:
     """
     Small, borderless, always-on-top window anchored to the bottom-right
     corner of the primary monitor.
+
+    The waveform is an ElevenLabs-style scrolling bar visualiser:
+    - Bars scroll left; new amplitude data enters from the right.
+    - Each bar is pill-shaped (rounded top and bottom caps).
+    - Bar heights are driven directly by real-time microphone RMS.
+    - Display amplitudes are lerped for smooth transitions.
+    - A gentle breathing animation plays during transcribing/done states.
     """
 
-    _STATE_RECORDING = "recording"
+    _STATE_RECORDING    = "recording"
     _STATE_TRANSCRIBING = "transcribing"
-    _STATE_DONE = "done"
+    _STATE_DONE         = "done"
 
     def __init__(self, recorder: Recorder):
         self._recorder = recorder
-        self._root: Optional[tk.Tk] = None
+        self._root:   Optional[tk.Tk]     = None
         self._canvas: Optional[tk.Canvas] = None
-        self._label: Optional[tk.Label] = None
+        self._label:  Optional[tk.Label]  = None
         self._state = self._STATE_RECORDING
         self._thread: Optional[threading.Thread] = None
+
+        # Scrolling amplitude ring-buffer and smoothed display values
+        self._amp_deque:    collections.deque = collections.deque(
+            [0.0] * WAVEFORM_BARS, maxlen=WAVEFORM_BARS
+        )
+        self._display_amps: List[float] = [0.0] * WAVEFORM_BARS
+
+        # Phase accumulator for idle breathing animation
+        self._idle_phase: float = 0.0
 
     # ------------------------------------------------------------------
     def show(self):
@@ -213,7 +249,7 @@ class ToastWindow:
         self._root = root
         root.overrideredirect(True)          # borderless
         root.attributes("-topmost", True)    # always on top
-        root.attributes("-alpha", 0.92)
+        root.attributes("-alpha", 0.93)
         root.configure(bg="#1e1e2e")
 
         screen_w = root.winfo_screenwidth()
@@ -231,87 +267,122 @@ class ToastWindow:
             fg="#cdd6f4",
             bg="#1e1e2e",
             anchor="w",
-            padx=12,
+            padx=14,
         )
-        self._label.pack(fill="x", pady=(10, 2))
+        self._label.pack(fill="x", pady=(10, 4))
 
-        # Waveform canvas
+        # Waveform canvas — background matches the window for a seamless look
+        canvas_w = TOAST_WIDTH - 28
         self._canvas = tk.Canvas(
             root,
-            width=TOAST_WIDTH - 24,
-            height=34,
-            bg="#313244",
+            width=canvas_w,
+            height=CANVAS_H,
+            bg="#1e1e2e",
             highlightthickness=0,
             relief="flat",
         )
-        self._canvas.pack(padx=12, pady=(0, 8))
+        self._canvas.pack(padx=14, pady=(0, 8))
 
-        root.after(50, self._tick)
+        root.after(TICK_MS, self._tick)
         root.mainloop()
 
+    # ------------------------------------------------------------------
     def _tick(self):
-        """Called every 50 ms inside the Tk event loop."""
+        """Called every TICK_MS ms inside the Tk event loop."""
         if self._root is None:
             return
 
         if self._state == self._STATE_RECORDING:
             self._label.configure(text="🎙  Recording…", fg="#cdd6f4")
-            self._draw_waveform()
+
+            # Sample latest RMS from microphone and push into scrolling buffer
+            chunk = self._recorder.latest_chunk()
+            if chunk is not None and len(chunk) > 0:
+                rms = float(np.sqrt(np.mean(chunk ** 2)))
+                rms = min(rms * 7.0, 1.0)   # scale: typical speech RMS ~0.03–0.15
+            else:
+                rms = 0.0
+            self._amp_deque.append(rms)
+
+            # Lerp display amps toward buffered targets for smooth animation
+            target = list(self._amp_deque)
+            for i in range(WAVEFORM_BARS):
+                self._display_amps[i] += (target[i] - self._display_amps[i]) * 0.30
+
+            self._draw_waveform(self._display_amps, _GRAD_LEFT, _GRAD_RIGHT)
+
         elif self._state == self._STATE_TRANSCRIBING:
             self._label.configure(text="⚙  Transcribing…", fg="#f9e2af")
-            self._draw_idle_bars()
+            # Gentle sine-wave breathing animation
+            self._idle_phase += 0.18
+            amps = [
+                0.10 + 0.09 * math.sin(self._idle_phase + i * 0.38)
+                for i in range(WAVEFORM_BARS)
+            ]
+            self._draw_waveform(amps, "#f9e2af", "#fab387")
+
         elif self._state == self._STATE_DONE:
             self._label.configure(text="✅  Done!", fg="#a6e3a1")
-            self._draw_idle_bars(color="#a6e3a1")
+            # Flat low-amplitude bars fading to green
+            self._draw_waveform([0.08] * WAVEFORM_BARS, "#a6e3a1", "#94e2d5")
             self._root.after(DISMISS_AFTER_MS, self._root.destroy)
             return
 
-        self._root.after(50, self._tick)
+        self._root.after(TICK_MS, self._tick)
 
-    def _draw_waveform(self):
+    # ------------------------------------------------------------------
+    def _draw_waveform(
+        self,
+        amps: List[float],
+        color_left: str,
+        color_right: str,
+    ):
+        """
+        Draw an ElevenLabs-style waveform: pill-shaped bars centred vertically,
+        growing symmetrically up and down, with a left-to-right colour gradient.
+        """
         canvas = self._canvas
         canvas.delete("all")
-        w = TOAST_WIDTH - 24
-        h = 34
-        bar_w = max(2, w // WAVEFORM_BARS - 1)
-        gap = (w - bar_w * WAVEFORM_BARS) // (WAVEFORM_BARS + 1)
 
-        chunk = self._recorder.latest_chunk()
-        if chunk is not None and len(chunk) > 0:
-            # Pad chunk to a multiple of WAVEFORM_BARS then reshape for vectorised max
-            n = len(chunk)
-            pad = (-n) % WAVEFORM_BARS
-            padded = np.pad(np.abs(chunk), (0, pad), constant_values=0.0)
-            amps = padded.reshape(WAVEFORM_BARS, -1).max(axis=1).tolist()
-        else:
-            amps = [0.0] * WAVEFORM_BARS
+        n       = len(amps)
+        canvas_w = TOAST_WIDTH - 28
+        cy      = CANVAS_H // 2
+        max_half = cy - 3               # max half-height leaving a 3 px margin
+        r       = BAR_W // 2            # cap radius = half the bar width
 
-        max_amp = max(amps) if max(amps) > 0 else 1.0
-        cy = h // 2
+        # Horizontal centering
+        total_w  = n * BAR_W + (n - 1) * BAR_GAP
+        x_origin = (canvas_w - total_w) // 2
 
         for i, amp in enumerate(amps):
-            norm = amp / max_amp
-            bar_h = max(2, int(norm * (h - 6)))
-            x0 = gap + i * (bar_w + gap)
-            x1 = x0 + bar_w
-            canvas.create_rectangle(
-                x0, cy - bar_h // 2,
-                x1, cy + bar_h // 2,
-                fill="#89b4fa", outline="",
-            )
+            t         = i / max(n - 1, 1)
+            bar_color = _lerp_hex(color_left, color_right, t)
+            half_h    = max(r + 1, int(amp * max_half))
 
-    def _draw_idle_bars(self, color="#585b70"):
-        canvas = self._canvas
-        canvas.delete("all")
-        w = TOAST_WIDTH - 24
-        h = 34
-        bar_w = max(2, w // WAVEFORM_BARS - 1)
-        gap = (w - bar_w * WAVEFORM_BARS) // (WAVEFORM_BARS + 1)
-        cy = h // 2
-        for i in range(WAVEFORM_BARS):
-            x0 = gap + i * (bar_w + gap)
-            x1 = x0 + bar_w
-            canvas.create_rectangle(x0, cy - 2, x1, cy + 2, fill=color, outline="")
+            x0 = x_origin + i * (BAR_W + BAR_GAP)
+            x1 = x0 + BAR_W
+            top    = cy - half_h
+            bottom = cy + half_h
+
+            # Rectangular body (between the two end caps)
+            if bottom - r > top + r:
+                canvas.create_rectangle(
+                    x0, top + r,
+                    x1, bottom - r,
+                    fill=bar_color, outline="",
+                )
+            # Top rounded cap
+            canvas.create_oval(
+                x0, top,
+                x1, top + 2 * r,
+                fill=bar_color, outline="",
+            )
+            # Bottom rounded cap
+            canvas.create_oval(
+                x0, bottom - 2 * r,
+                x1, bottom,
+                fill=bar_color, outline="",
+            )
 
 
 # ---------------------------------------------------------------------------
