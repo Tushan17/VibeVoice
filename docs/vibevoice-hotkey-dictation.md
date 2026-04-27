@@ -43,6 +43,70 @@ python demo/vibevoice_hotkey_dictation.py --model_path microsoft/VibeVoice-ASR
 
 On the first run the model weights (~14 GB for the 7B variant) are downloaded from HuggingFace and cached locally. Subsequent runs are much faster.
 
+## Step-by-step guide
+
+### Step 1 — Clone the repo and install dependencies
+
+```bash
+git clone https://github.com/microsoft/VibeVoice.git
+cd VibeVoice
+pip install -e ".[hotkey-dictation]"
+```
+
+### Step 2 — Open an Administrator terminal (Windows)
+
+The `keyboard` library must intercept system-wide key events, which requires elevated privileges on Windows.
+
+**Option A — GUI:** right-click *Command Prompt* or *PowerShell* in the Start menu and choose **Run as administrator**.
+
+**Option B — PowerShell one-liner:**
+
+```powershell
+Start-Process powershell -Verb RunAs
+```
+
+Then, inside the elevated window, navigate back to your VibeVoice directory:
+
+```powershell
+cd C:\path\to\VibeVoice
+```
+
+### Step 3 — Start the dictation listener
+
+```bash
+python demo/vibevoice_hotkey_dictation.py --model_path microsoft/VibeVoice-ASR
+```
+
+The script loads the ASR model (this can take 30–60 seconds on first run), then prints:
+
+```
+[VibeVoice] Model ready on cpu
+[VibeVoice] Listening for hotkey: ctrl+space
+[VibeVoice] Press Ctrl+C to quit.
+```
+
+### Step 4 — Dictate
+
+1. Click into any text field in any application (e.g. Notepad, a browser address bar, an email compose window).
+2. Press **Ctrl+Space**. A small overlay appears in the bottom-right corner:
+
+   ```
+   🎙  Recording…
+   ▁▃▆█▅▂▁ …  (live waveform)
+   ```
+
+3. Speak clearly. The waveform animates while audio is captured.
+4. **Stop recording** by either:
+   - staying silent for ~1.5 seconds (auto-stop), or
+   - pressing **Ctrl+Space** again.
+5. The overlay switches to `⚙ Transcribing…` while the ASR model runs.
+6. When done, `✅ Done!` appears for ~2.5 seconds, then the overlay closes.
+7. The transcribed text has already been typed into the focused text field and copied to your clipboard.
+
+### Step 5 — Quit
+
+Press **Ctrl+C** in the terminal to stop the listener.
+
 ## Options
 
 | Flag | Default | Description |

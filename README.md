@@ -187,6 +187,25 @@ https://github.com/user-attachments/assets/0901d274-f6ae-46ef-a0fd-3c4fba4f76dc
 
 <br>
 
+### 4. ⌨️ [VibeVoice Hotkey Dictation](docs/vibevoice-hotkey-dictation.md) - Windows Voice-to-Text Overlay
+
+Dictate text into **any application** on Windows with a single global hotkey.
+
+- Press **Ctrl+Space** to start/stop recording from any focused text field
+- Live waveform toast notification (bottom-right corner) shows recording state
+- Auto-stops after a configurable silence period
+- Powered by VibeVoice-ASR; result is placed on the clipboard and typed automatically
+
+```bash
+# Install extra dependencies and run
+pip install -e ".[hotkey-dictation]"
+python demo/vibevoice_hotkey_dictation.py --model_path microsoft/VibeVoice-ASR
+```
+
+[📖 Documentation](docs/vibevoice-hotkey-dictation.md)
+
+<br>
+
 ## Contributing
 
 Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
