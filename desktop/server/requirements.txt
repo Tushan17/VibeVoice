@@ -1,0 +1,6 @@
+# VibeVoice Desktop Server — Python dependencies
+# These are in addition to the main vibevoice package (pip install -e .)
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+# All other deps (torch, transformers, librosa, etc.) come from the main package

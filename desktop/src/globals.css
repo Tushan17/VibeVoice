@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* Ensure dark background fills the whole window */
+html, body, #root {
+  height: 100%;
+  background-color: #0f0f1a;
+}
+
+/* Custom waveform canvas container */
+.waveform-container {
+  background: #080812;
+  border-radius: 8px;
+  overflow: hidden;
+  height: 80px;
+}
+
+/* Electron drag region for the header */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
